@@ -13,5 +13,7 @@ dependencies:
   audioplayers: ^6.1.0
   path_provider: ^2.1.4
   shared_preferences: ^2.3.2
+dependency_overrides:
+  shared_preferences_android: 2.4.18
 flutter:
   uses-material-design: true
