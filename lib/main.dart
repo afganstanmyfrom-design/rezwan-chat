@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -27,6 +28,11 @@ const S = {
     'dev': 'About the Developer', 'edu': '1st Semester, Computer Science Student',
     'desc': 'Rezvan Chat is a simple, fast and private messaging app built as a student project, where people connect using a unique ID instead of a phone number.',
     'error': 'Something went wrong',
+    'tabChats': 'Chats', 'tabCalls': 'Calls', 'tabUpdates': 'Updates', 'callsSoon': 'Calls are coming soon', 'soon': 'Coming soon',
+    'newGroup': 'New group', 'find': 'Search...', 'noUpdates': 'No updates from your contacts yet', 'recent': 'Recent updates',
+    'block': 'Block', 'unblock': 'Unblock', 'blockedMsg': 'Blocked. Unblock this contact in their profile to send messages.',
+    'bio': 'About', 'blockedList': 'Blocked contacts', 'noBlocked': 'No blocked contacts', 'readReceipts': 'Read receipts',
+    'showSeen': 'Show online and last seen', 'clearCache': 'Clear saved chats', 'cleared': 'Cleared',
     'typing': 'typing...', 'online': 'online', 'lastSeen': 'last seen', 'deleted': 'This message was deleted',
     'reply': 'Reply', 'del': 'Delete for everyone', 'photo': 'Photo', 'voice': 'Voice message',
     'myStory': 'My story', 'editProfile': 'Edit profile', 'help': 'How to use', 'saved': 'Saved',
@@ -46,6 +52,11 @@ const S = {
     'dev': 'درباره سازنده', 'edu': 'سمستر اول، محصل کمپیوتر ساینس',
     'desc': 'رضوان چت یک پیام‌رسان ساده، سریع و خصوصی است که به عنوان پروژه محصلی ساخته شده و کاربران با آیدی یکتا (به جای شماره تلفن) با هم ارتباط می‌گیرند.',
     'error': 'مشکلی پیش آمد',
+    'tabChats': 'گفتگوها', 'tabCalls': 'تماس‌ها', 'tabUpdates': 'بروزرسانی‌ها', 'callsSoon': 'تماس‌ها به‌زودی اضافه می‌شوند', 'soon': 'به‌زودی',
+    'newGroup': 'گروه جدید', 'find': 'جستجو...', 'noUpdates': 'هنوز بروزرسانی‌ای از مخاطبین نیست', 'recent': 'بروزرسانی‌های اخیر',
+    'block': 'مسدود کردن', 'unblock': 'رفع مسدودی', 'blockedMsg': 'مسدود است. برای ارسال پیام، از پروفایل او رفع مسدودی کنید.',
+    'bio': 'درباره', 'blockedList': 'مخاطبین مسدود', 'noBlocked': 'مخاطب مسدودی ندارید', 'readReceipts': 'تیک خوانده‌شدن',
+    'showSeen': 'نمایش آنلاین و آخرین بازدید', 'clearCache': 'پاک کردن چت‌های ذخیره‌شده', 'cleared': 'پاک شد',
     'typing': 'در حال نوشتن...', 'online': 'آنلاین', 'lastSeen': 'آخرین بازدید', 'deleted': 'این پیام حذف شد',
     'reply': 'پاسخ', 'del': 'حذف برای همه', 'photo': 'عکس', 'voice': 'پیام صوتی',
     'myStory': 'استوری من', 'editProfile': 'ویرایش پروفایل', 'help': 'راهنمای استفاده', 'saved': 'ذخیره شد',
@@ -68,7 +79,8 @@ void toast(BuildContext c, String m) =>
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey);
-  final p = await SharedPreferences.getInstance();
+  prefs = await SharedPreferences.getInstance();
+  final p = prefs;
   lang.value = p.getString('lang') ?? 'en';
   dark.value = p.getBool('dark') ?? false;
   runApp(const App());
@@ -342,12 +354,15 @@ class _HomeState extends State<Home> {
   final loading = <String>{};
   List<Map<String, dynamic>> stories = [];
   Timer? timer;
+  int tab = 0;
+  bool searching = false;
+  String q = '';
   late final Stream<List<Map<String, dynamic>>> ms = sb.from('messages').stream(primaryKey: ['id']).order('created_at', ascending: false);
   @override
-  void initState() { super.initState(); beat(); timer = Timer.periodic(const Duration(seconds: 30), (_) => beat()); load(); }
+  void initState() { super.initState(); for (final x in cachedList('home_people')) { people[x['id']] = x; if (x['id'] != me) contactIds.add(x['id']); } beat(); timer = Timer.periodic(const Duration(seconds: 30), (_) => beat()); load(); }
   @override
   void dispose() { timer?.cancel(); super.dispose(); }
-  Future<void> beat() async { try { await sb.from('profiles').update({'last_seen': DateTime.now().toUtc().toIso8601String()}).eq('id', me); } catch (_) {} }
+  Future<void> beat() async { if (!(prefs.getBool('seen') ?? true)) return; try { await sb.from('profiles').update({'last_seen': DateTime.now().toUtc().toIso8601String()}).eq('id', me); } catch (_) {} }
   Future<void> getPeople(Iterable<String> ids) async {
     final need = ids.where((i) => !people.containsKey(i) && !loading.contains(i)).toList();
     if (need.isEmpty) return;
@@ -355,6 +370,7 @@ class _HomeState extends State<Home> {
     try {
       final r = await sb.from('profiles').select().inFilter('id', need);
       for (final p in r) { people[p['id']] = Map<String, dynamic>.from(p); }
+      prefs.setString('home_people', jsonEncode(people.values.toList()));
       if (mounted) setState(() {});
     } catch (_) {}
   }
@@ -398,46 +414,100 @@ class _HomeState extends State<Home> {
     ]));
   }
 
+  Map<String, List<Map<String, dynamic>>> grouped() {
+    final by = <String, List<Map<String, dynamic>>>{};
+    for (final s in stories) { final o = s['owner'] as String; if (o == me || contactIds.contains(o)) by.putIfAbsent(o, () => []).add(s); }
+    return by;
+  }
+
+  void menu(String v) {
+    if (v == 'group') toast(context, t('soon'));
+    if (v == 'settings') Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()));
+    if (v == 'help') Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpPage()));
+    if (v == 'about') Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutPage()));
+    if (v == 'logout') sb.auth.signOut();
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(t('chats')), actions: [
-          IconButton(icon: const Icon(Icons.person_add), onPressed: () async { await Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchPage())); load(); }),
-          IconButton(icon: const Icon(Icons.settings), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()))),
-        ]),
-        body: RefreshIndicator(
-          onRefresh: load,
-          child: StreamBuilder<List<Map<String, dynamic>>>(
-            stream: ms,
-            builder: (c, s) {
-              final last = <String, Map<String, dynamic>>{};
-              final unread = <String, int>{};
-              for (final m in s.data ?? <Map<String, dynamic>>[]) {
-                final peer = (m['sender'] == me ? m['receiver'] : m['sender']) as String;
-                last.putIfAbsent(peer, () => m);
-                if (m['receiver'] == me && m['read'] != true) unread[peer] = (unread[peer] ?? 0) + 1;
-              }
-              contactIds.addAll(last.keys);
-              getPeople(contactIds);
-              final ids = contactIds.where((i) => people.containsKey(i) && i != me).toList()
-                ..sort((a, b) => (last[b]?['created_at'] ?? '').toString().compareTo((last[a]?['created_at'] ?? '').toString()));
-              return ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
-                storiesBar(),
-                if (ids.isEmpty) Padding(padding: const EdgeInsets.all(32), child: Text(t('empty'), textAlign: TextAlign.center)),
-                for (final id in ids)
-                  ListTile(
-                    leading: avatar(people[id]!),
-                    title: Text(people[id]!['display_name']),
-                    subtitle: Text(last[id] == null ? '@${people[id]!['username']}' : preview(last[id]!), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    trailing: last[id] == null ? null : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      Text(hm(last[id]!['created_at']), style: const TextStyle(fontSize: 11)),
-                      if ((unread[id] ?? 0) > 0) Badge(label: Text('${unread[id]}')),
-                    ]),
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatPage(peer: people[id]!))),
-                  ),
-              ]);
-            },
-          ),
-        ),
+  Widget build(BuildContext context) => StreamBuilder<List<Map<String, dynamic>>>(
+        stream: ms,
+        initialData: cachedList('home_msgs'),
+        builder: (c, s) {
+          final all = s.data ?? <Map<String, dynamic>>[];
+          prefs.setString('home_msgs', jsonEncode(all.take(300).toList()));
+          final last = <String, Map<String, dynamic>>{};
+          final unread = <String, int>{};
+          for (final m in all) {
+            final peer = (m['sender'] == me ? m['receiver'] : m['sender']) as String;
+            last.putIfAbsent(peer, () => m);
+            if (m['receiver'] == me && m['read'] != true) unread[peer] = (unread[peer] ?? 0) + 1;
+          }
+          final total = unread.values.fold<int>(0, (a, b) => a + b);
+          contactIds.addAll(last.keys);
+          getPeople(contactIds);
+          final ids = contactIds.where((i) => people.containsKey(i) && i != me && (q.isEmpty ||
+                  people[i]!['display_name'].toString().toLowerCase().contains(q.toLowerCase()) ||
+                  people[i]!['username'].toString().contains(q.toLowerCase()))).toList()
+            ..sort((a, b) => (last[b]?['created_at'] ?? '').toString().compareTo((last[a]?['created_at'] ?? '').toString()));
+          final by = grouped();
+          Widget body;
+          if (tab == 0) {
+            body = RefreshIndicator(onRefresh: load, child: ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
+              if (ids.isEmpty) Padding(padding: const EdgeInsets.all(32), child: Text(t('empty'), textAlign: TextAlign.center)),
+              for (final id in ids)
+                ListTile(
+                  leading: avatar(people[id]!),
+                  title: Text(people[id]!['display_name']),
+                  subtitle: Text(last[id] == null ? '@${people[id]!['username']}' : preview(last[id]!), maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: (unread[id] ?? 0) > 0 ? FontWeight.bold : FontWeight.normal)),
+                  trailing: last[id] == null ? null : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Text(hm(last[id]!['created_at']), style: const TextStyle(fontSize: 11)),
+                    if ((unread[id] ?? 0) > 0) Badge(label: Text('${unread[id]}')),
+                  ]),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatPage(peer: people[id]!))),
+                ),
+            ]));
+          } else if (tab == 1) {
+            body = Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.call, size: 64, color: Colors.grey), const SizedBox(height: 12), Text(t('callsSoon'))]));
+          } else {
+            final others = by.entries.where((e) => e.key != me && people[e.key] != null).toList();
+            body = RefreshIndicator(onRefresh: load, child: ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
+              storiesBar(),
+              const Divider(),
+              Padding(padding: const EdgeInsets.all(12), child: Text(t('recent'), style: const TextStyle(fontWeight: FontWeight.bold))),
+              if (others.isEmpty) Padding(padding: const EdgeInsets.all(24), child: Text(t('noUpdates'), textAlign: TextAlign.center)),
+              for (final e in others)
+                ListTile(leading: avatar(people[e.key]!), title: Text(people[e.key]!['display_name']), subtitle: Text(hm(e.value.last['created_at'])),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => StoryView(list: e.value, name: people[e.key]!['display_name'], onChanged: load)))),
+            ]));
+          }
+          final titles = [t('tabChats'), t('tabCalls'), t('tabUpdates')];
+          return Scaffold(
+            appBar: AppBar(
+              title: searching && tab == 0
+                  ? TextField(autofocus: true, decoration: InputDecoration(hintText: t('find'), border: InputBorder.none), onChanged: (v) => setState(() => q = v))
+                  : Text(titles[tab]),
+              actions: [
+                if (tab == 0) IconButton(icon: Icon(searching ? Icons.close : Icons.search), onPressed: () => setState(() { searching = !searching; q = ''; })),
+                if (tab == 0) IconButton(icon: const Icon(Icons.person_add), onPressed: () async { await Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchPage())); load(); }),
+                PopupMenuButton<String>(onSelected: menu, itemBuilder: (_) => [
+                  PopupMenuItem(value: 'group', child: Text(t('newGroup'))),
+                  PopupMenuItem(value: 'settings', child: Text(t('settings'))),
+                  PopupMenuItem(value: 'help', child: Text(t('help'))),
+                  PopupMenuItem(value: 'about', child: Text(t('about'))),
+                  PopupMenuItem(value: 'logout', child: Text(t('logout'))),
+                ]),
+              ],
+            ),
+            body: body,
+            bottomNavigationBar: NavigationBar(selectedIndex: tab, onDestinationSelected: (i) => setState(() => tab = i), destinations: [
+              NavigationDestination(icon: Badge(isLabelVisible: total > 0, label: Text('$total'), child: const Icon(Icons.chat)), label: titles[0]),
+              NavigationDestination(icon: const Icon(Icons.call), label: titles[1]),
+              NavigationDestination(icon: const Icon(Icons.donut_large), label: titles[2]),
+            ]),
+          );
+        },
       );
 }
 
@@ -482,6 +552,9 @@ class _ChatPageState extends State<ChatPage> {
   final c = TextEditingController();
   final rec = AudioRecorder();
   bool recording = false;
+  bool blocked = false;
+  List<Map<String, dynamic>> pend = [];
+  Timer? rt;
   Map<String, dynamic>? replyTo;
   final marked = <int>{};
   final typing = ValueNotifier<bool>(false);
@@ -496,6 +569,9 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void initState() {
     super.initState();
+    loadBlock();
+    pend = cachedList('pend_$pid');
+    rt = Timer.periodic(const Duration(seconds: 8), (_) => flush());
     final ids = [me, pid]..sort();
     ch = sb.channel('typing_${ids.join('_')}')
       ..onBroadcast(event: 'typing', callback: (p) {
@@ -510,7 +586,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   @override
-  void dispose() { tt?.cancel(); sb.removeChannel(ch); rec.dispose(); super.dispose(); }
+  void dispose() { rt?.cancel(); tt?.cancel(); sb.removeChannel(ch); rec.dispose(); super.dispose(); }
 
   void ping() {
     if (DateTime.now().difference(lastType) < const Duration(seconds: 2)) return;
@@ -518,10 +594,28 @@ class _ChatPageState extends State<ChatPage> {
     try { ch.sendBroadcastMessage(event: 'typing', payload: {'from': me}); } catch (_) {}
   }
 
+  Future<void> loadBlock() async {
+    try { final r = await sb.from('blocks').select().eq('blocker', me).eq('blocked', pid); if (mounted) setState(() => blocked = r.isNotEmpty); } catch (_) {}
+  }
+  void savePend() => prefs.setString('pend_$pid', jsonEncode(pend));
+  Future<void> flush() async {
+    for (final p in List<Map<String, dynamic>>.from(pend)) {
+      try {
+        await sb.from('messages').insert({'sender': me, 'receiver': pid, 'type': 'text', 'body': p['body']});
+        pend.remove(p); savePend(); if (mounted) setState(() {});
+      } catch (_) { break; }
+    }
+  }
   Future<void> send(String type, String body) async {
+    if (blocked) { if (mounted) toast(context, t('blockedMsg')); return; }
     final r = replyTo;
     setState(() => replyTo = null);
-    await sb.from('messages').insert({'sender': me, 'receiver': pid, 'type': type, 'body': body, if (r != null) 'reply_to': r['id']});
+    try {
+      await sb.from('messages').insert({'sender': me, 'receiver': pid, 'type': type, 'body': body, if (r != null) 'reply_to': r['id']});
+    } catch (_) {
+      if (type == 'text') { pend.add({'body': body, 'created_at': DateTime.now().toUtc().toIso8601String()}); savePend(); if (mounted) setState(() {}); }
+      else if (mounted) { toast(context, t('error')); }
+    }
   }
 
   Future<void> sendText() async { final s = c.text.trim(); if (s.isEmpty) return; c.clear(); await send('text', s); }
@@ -548,6 +642,7 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   void markRead(List<Map<String, dynamic>> l) {
+    if (!(prefs.getBool('rr') ?? true)) return;
     final ids = l.where((m) => m['receiver'] == me && m['read'] != true && !marked.contains(m['id'])).map((m) => m['id'] as int).toList();
     if (ids.isEmpty) return;
     marked.addAll(ids);
@@ -586,7 +681,7 @@ class _ChatPageState extends State<ChatPage> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
           title: GestureDetector(
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProfilePage(peer: widget.peer))),
+            onTap: () async { await Navigator.push(context, MaterialPageRoute(builder: (_) => ProfilePage(peer: widget.peer))); loadBlock(); },
             child: Row(children: [
               avatar(widget.peer, r: 18),
               const SizedBox(width: 10),
@@ -605,13 +700,16 @@ class _ChatPageState extends State<ChatPage> {
         body: Column(children: [
           Expanded(child: StreamBuilder<List<Map<String, dynamic>>>(
             stream: st,
+            initialData: cachedList('chat_$pid'),
             builder: (_, s) {
               final l = (s.data ?? <Map<String, dynamic>>[]).where((m) => (m['sender'] == me && m['receiver'] == pid) || (m['sender'] == pid && m['receiver'] == me)).toList();
               markRead(l);
+              prefs.setString('chat_$pid', jsonEncode(l));
               return StreamBuilder<List<Map<String, dynamic>>>(stream: rs, builder: (_, r) {
                 final rx = r.data ?? <Map<String, dynamic>>[];
-                return ListView.builder(reverse: true, padding: const EdgeInsets.all(8), itemCount: l.length, itemBuilder: (_, i) {
-                  final m = l[i];
+                return ListView.builder(reverse: true, padding: const EdgeInsets.all(8), itemCount: l.length + pend.length, itemBuilder: (_, i) {
+                  if (i < pend.length) { return Bubble(m: {...pend[pend.length - 1 - i], 'sender': me, 'type': 'text', 'pending': true}, mine: true, reactions: const [], reply: null); }
+                  final m = l[i - pend.length];
                   final mr = rx.where((e) => e['message_id'] == m['id']).toList();
                   final rep = m['reply_to'] == null ? null : l.cast<Map<String, dynamic>?>().firstWhere((e) => e!['id'] == m['reply_to'], orElse: () => null);
                   return GestureDetector(onLongPress: () => actions(m, mr), onHorizontalDragEnd: (_) => setState(() => replyTo = m),
@@ -620,6 +718,7 @@ class _ChatPageState extends State<ChatPage> {
               });
             },
           )),
+          if (blocked) Container(width: double.infinity, color: Colors.red.withOpacity(0.1), padding: const EdgeInsets.all(10), child: Text(t('blockedMsg'), textAlign: TextAlign.center)),
           if (replyTo != null)
             Container(color: Colors.black12, padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(children: [
               const Icon(Icons.reply, size: 18), const SizedBox(width: 8),
@@ -674,7 +773,7 @@ class Bubble extends StatelessWidget {
           w,
           Row(mainAxisSize: MainAxisSize.min, children: [
             Text(hm(m['created_at']), style: const TextStyle(fontSize: 10)),
-            if (mine) Padding(padding: const EdgeInsetsDirectional.only(start: 4), child: Icon(read ? Icons.done_all : Icons.done, size: 14, color: read ? Colors.blue : Colors.grey)),
+            if (mine) Padding(padding: const EdgeInsetsDirectional.only(start: 4), child: Icon(m['pending'] == true ? Icons.access_time : (read ? Icons.done_all : Icons.done), size: 14, color: read ? Colors.blue : Colors.grey)),
           ]),
           if (reactions.isNotEmpty) Text(reactions.map((e) => e['emoji']).join(' ')),
         ]),
@@ -683,30 +782,76 @@ class Bubble extends StatelessWidget {
   }
 }
 
-class ProfilePage extends StatelessWidget {
+class HelpPage extends StatelessWidget {
+  const HelpPage({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(t('help'))),
+        body: ListView(padding: const EdgeInsets.all(24), children: [Text(t('helpText'), style: const TextStyle(fontSize: 16, height: 1.6))]),
+      );
+}
+
+
+late SharedPreferences prefs;
+List<Map<String, dynamic>> cachedList(String k) =>
+    ((jsonDecode(prefs.getString(k) ?? '[]')) as List).map((e) => Map<String, dynamic>.from(e)).toList();
+
+class ProfilePage extends StatefulWidget {
   final Map<String, dynamic> peer;
   const ProfilePage({super.key, required this.peer});
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  bool blocked = false;
+  Map<String, dynamic> p = {};
+  @override
+  void initState() { super.initState(); p = widget.peer; init(); }
+  Future<void> init() async {
+    try {
+      final r = await sb.from('blocks').select().eq('blocker', me).eq('blocked', p['id']);
+      final f = await sb.from('profiles').select().eq('id', p['id']).single();
+      if (mounted) setState(() { blocked = r.isNotEmpty; p = f; });
+    } catch (_) {}
+  }
+  Future<void> toggleBlock() async {
+    try {
+      if (blocked) { await sb.from('blocks').delete().eq('blocker', me).eq('blocked', p['id']); }
+      else { await sb.from('blocks').insert({'blocker': me, 'blocked': p['id']}); }
+      setState(() => blocked = !blocked);
+    } catch (_) { if (mounted) toast(context, t('error')); }
+  }
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text(t('profile'))),
         body: ListView(padding: const EdgeInsets.all(24), children: [
           Center(child: GestureDetector(
-              onTap: peer['avatar_url'] == null ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(), body: Center(child: InteractiveViewer(child: Image.network(peer['avatar_url'])))))),
-              child: avatar(peer, r: 70))),
+              onTap: p['avatar_url'] == null ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(), body: Center(child: InteractiveViewer(child: Image.network(p['avatar_url'])))))),
+              child: avatar(p, r: 70))),
           const SizedBox(height: 16),
-          Center(child: Text(peer['display_name'], style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
-          Center(child: Text('@${peer['username']}')),
-          const SizedBox(height: 24),
-          ListTile(leading: const Icon(Icons.person_remove, color: Colors.red), title: Text(t('removeContact')), onTap: () async {
-            await sb.from('contacts').delete().eq('owner', me).eq('contact', peer['id']);
+          Center(child: Text(p['display_name'] ?? '', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
+          Center(child: Text('@${p['username']}')),
+          Center(child: Text(isOnline(p) ? t('online') : (p['last_seen'] == null ? '' : '${t('lastSeen')} ${hm(p['last_seen'])}'), style: const TextStyle(color: Colors.grey))),
+          const SizedBox(height: 16),
+          Card(child: ListTile(title: Text(t('bio'), style: const TextStyle(fontSize: 12, color: Colors.grey)), subtitle: Text((p['bio'] ?? '').toString().isEmpty ? '-' : p['bio'], style: const TextStyle(fontSize: 16)))),
+          const SizedBox(height: 8),
+          ListTile(leading: Icon(blocked ? Icons.lock_open : Icons.block, color: Colors.red), title: Text(t(blocked ? 'unblock' : 'block'), style: const TextStyle(color: Colors.red)), onTap: toggleBlock),
+          ListTile(leading: const Icon(Icons.person_remove, color: Colors.red), title: Text(t('removeContact'), style: const TextStyle(color: Colors.red)), onTap: () async {
+            await sb.from('contacts').delete().eq('owner', me).eq('contact', p['id']);
             if (context.mounted) Navigator.popUntil(context, (r) => r.isFirst);
           }),
         ]),
       );
 }
 
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) => ValueListenableBuilder(
         valueListenable: lang,
@@ -719,7 +864,18 @@ class SettingsPage extends StatelessWidget {
                     items: const [DropdownMenuItem(value: 'en', child: Text('English')), DropdownMenuItem(value: 'fa', child: Text('فارسی'))],
                     onChanged: (v) => setLang(v!))),
             SwitchListTile(secondary: const Icon(Icons.dark_mode), title: Text(t('dark')), value: dark.value,
-                onChanged: (v) async { dark.value = v; (await SharedPreferences.getInstance()).setBool('dark', v); }),
+                onChanged: (v) async { dark.value = v; await prefs.setBool('dark', v); setState(() {}); }),
+            const Divider(),
+            SwitchListTile(secondary: const Icon(Icons.done_all), title: Text(t('readReceipts')), value: prefs.getBool('rr') ?? true,
+                onChanged: (v) async { await prefs.setBool('rr', v); setState(() {}); }),
+            SwitchListTile(secondary: const Icon(Icons.visibility), title: Text(t('showSeen')), value: prefs.getBool('seen') ?? true,
+                onChanged: (v) async { await prefs.setBool('seen', v); setState(() {}); }),
+            ListTile(leading: const Icon(Icons.block), title: Text(t('blockedList')), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedPage()))),
+            ListTile(leading: const Icon(Icons.cleaning_services), title: Text(t('clearCache')), onTap: () async {
+              for (final k in prefs.getKeys().where((k) => k.startsWith('chat_') || k.startsWith('home_')).toList()) { await prefs.remove(k); }
+              if (context.mounted) toast(context, t('cleared'));
+            }),
+            const Divider(),
             ListTile(leading: const Icon(Icons.help), title: Text(t('help')), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpPage()))),
             ListTile(leading: const Icon(Icons.info), title: Text(t('about')), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutPage()))),
             ListTile(leading: const Icon(Icons.logout), title: Text(t('logout')), onTap: () { Navigator.popUntil(context, (r) => r.isFirst); sb.auth.signOut(); }),
@@ -728,12 +884,31 @@ class SettingsPage extends StatelessWidget {
       );
 }
 
-class HelpPage extends StatelessWidget {
-  const HelpPage({super.key});
+class BlockedPage extends StatefulWidget {
+  const BlockedPage({super.key});
+  @override
+  State<BlockedPage> createState() => _BlockedPageState();
+}
+
+class _BlockedPageState extends State<BlockedPage> {
+  List<Map<String, dynamic>>? l;
+  @override
+  void initState() { super.initState(); load(); }
+  Future<void> load() async {
+    try {
+      final b = await sb.from('blocks').select('blocked').eq('blocker', me);
+      final ids = b.map((e) => e['blocked']).toList();
+      final r = ids.isEmpty ? [] : await sb.from('profiles').select().inFilter('id', ids);
+      if (mounted) setState(() => l = List<Map<String, dynamic>>.from(r));
+    } catch (_) { if (mounted) setState(() => l = []); }
+  }
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: Text(t('help'))),
-        body: ListView(padding: const EdgeInsets.all(24), children: [Text(t('helpText'), style: const TextStyle(fontSize: 16, height: 1.6))]),
+        appBar: AppBar(title: Text(t('blockedList'))),
+        body: l == null ? const Center(child: CircularProgressIndicator()) : l!.isEmpty ? Center(child: Text(t('noBlocked'))) : ListView(children: [
+          for (final p in l!) ListTile(leading: avatar(p), title: Text(p['display_name']), subtitle: Text('@${p['username']}'),
+              trailing: TextButton(child: Text(t('unblock')), onPressed: () async { await sb.from('blocks').delete().eq('blocker', me).eq('blocked', p['id']); load(); }))
+        ]),
       );
 }
 
@@ -744,13 +919,13 @@ class EditProfilePage extends StatefulWidget {
 }
 
 class _EditProfilePageState extends State<EditProfilePage> {
-  final n = TextEditingController();
+  final n = TextEditingController(), b = TextEditingController();
   File? img;
   String? cur;
   @override
   void initState() {
     super.initState();
-    sb.from('profiles').select().eq('id', me).single().then((p) { n.text = p['display_name']; if (mounted) setState(() => cur = p['avatar_url']); });
+    sb.from('profiles').select().eq('id', me).single().then((p) { n.text = p['display_name']; b.text = p['bio'] ?? ''; if (mounted) setState(() => cur = p['avatar_url']); });
   }
   Future<void> pick() async {
     final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70, maxWidth: 800);
@@ -759,7 +934,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   Future<void> save() async {
     try {
       final u = img == null ? cur : await upload(img!, 'jpg');
-      await sb.from('profiles').update({'display_name': n.text.trim(), 'avatar_url': u}).eq('id', me);
+      await sb.from('profiles').update({'display_name': n.text.trim(), 'bio': b.text.trim(), 'avatar_url': u}).eq('id', me);
       if (mounted) { toast(context, t('saved')); Navigator.pop(context); }
     } catch (_) { if (mounted) toast(context, t('error')); }
   }
@@ -772,7 +947,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
               child: (img == null && cur == null) ? const Icon(Icons.add_a_photo, size: 36) : null))),
           const SizedBox(height: 20),
           TextField(controller: n, decoration: InputDecoration(labelText: t('name'), border: const OutlineInputBorder())),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          TextField(controller: b, maxLength: 120, decoration: InputDecoration(labelText: t('bio'), border: const OutlineInputBorder())),
+          const SizedBox(height: 8),
           FilledButton(onPressed: save, child: Text(t('save'))),
         ]),
       );
