@@ -76,14 +76,26 @@ Future<String> upload(File f, String ext) async {
 void toast(BuildContext c, String m) =>
     ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(m)));
 
-Future<void> main() async {
+void main() {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    ErrorWidget.builder = (d) => Material(child: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: SelectableText(d.toString()))));
+    try {
+      await boot();
+      runApp(const App());
+    } catch (e, st) {
+      runApp(MaterialApp(home: Scaffold(body: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(12), child: SelectableText('STARTUP ERROR:\n$e\n\n$st'))))));
+    }
+  }, (e, st) {});
+}
+
+Future<void> boot() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(url: supabaseUrl, anonKey: supabaseKey);
   prefs = await SharedPreferences.getInstance();
   final p = prefs;
   lang.value = p.getString('lang') ?? 'en';
   dark.value = p.getBool('dark') ?? false;
-  runApp(const App());
 }
 
 class App extends StatelessWidget {
