@@ -33,6 +33,8 @@ const S = {
     'block': 'Block', 'unblock': 'Unblock', 'blockedMsg': 'Blocked. Unblock this contact in their profile to send messages.',
     'bio': 'About', 'blockedList': 'Blocked contacts', 'noBlocked': 'No blocked contacts', 'readReceipts': 'Read receipts',
     'showSeen': 'Show online and last seen', 'clearCache': 'Clear saved chats', 'cleared': 'Cleared',
+    'edit': 'Edit', 'edited': 'edited', 'forward': 'Forward', 'forwarded': 'Forwarded', 'star': 'Star', 'unstar': 'Unstar', 'cancel': 'Cancel',
+    'starredMsgs': 'Starred messages', 'noStarred': 'No starred messages yet', 'addChat': 'Add and chat',
     'typing': 'typing...', 'online': 'online', 'lastSeen': 'last seen', 'deleted': 'This message was deleted',
     'reply': 'Reply', 'del': 'Delete for everyone', 'photo': 'Photo', 'voice': 'Voice message',
     'myStory': 'My story', 'editProfile': 'Edit profile', 'help': 'How to use', 'saved': 'Saved',
@@ -57,6 +59,8 @@ const S = {
     'block': 'مسدود کردن', 'unblock': 'رفع مسدودی', 'blockedMsg': 'مسدود است. برای ارسال پیام، از پروفایل او رفع مسدودی کنید.',
     'bio': 'درباره', 'blockedList': 'مخاطبین مسدود', 'noBlocked': 'مخاطب مسدودی ندارید', 'readReceipts': 'تیک خوانده‌شدن',
     'showSeen': 'نمایش آنلاین و آخرین بازدید', 'clearCache': 'پاک کردن چت‌های ذخیره‌شده', 'cleared': 'پاک شد',
+    'edit': 'ویرایش', 'edited': 'ویرایش‌شده', 'forward': 'فوروارد', 'forwarded': 'فوروارد شد', 'star': 'ستاره‌دار کردن', 'unstar': 'حذف ستاره', 'cancel': 'لغو',
+    'starredMsgs': 'پیام‌های ذخیره‌شده', 'noStarred': 'هنوز پیام ستاره‌داری نیست', 'addChat': 'افزودن و گفتگو',
     'typing': 'در حال نوشتن...', 'online': 'آنلاین', 'lastSeen': 'آخرین بازدید', 'deleted': 'این پیام حذف شد',
     'reply': 'پاسخ', 'del': 'حذف برای همه', 'photo': 'عکس', 'voice': 'پیام صوتی',
     'myStory': 'استوری من', 'editProfile': 'ویرایش پروفایل', 'help': 'راهنمای استفاده', 'saved': 'ذخیره شد',
@@ -285,42 +289,11 @@ class _SearchPageState extends State<SearchPage> {
                   suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: find))),
           const SizedBox(height: 16),
           if (r != null && r!['id'] != me)
-            ListTile(leading: avatar(r!), title: Text(r!['display_name']), subtitle: Text('@${r!['username']}'),
+            ListTile(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => UserPreviewPage(user: r!))), leading: avatar(r!), title: Text(r!['display_name']), subtitle: Text('@${r!['username']}'),
                 trailing: FilledButton(onPressed: add, child: Text(t('add'))))
           else if (done) Text(t('notfound')),
         ])),
       );
-}
-
-class AudioBubble extends StatefulWidget {
-  final String url;
-  const AudioBubble({super.key, required this.url});
-  @override
-  State<AudioBubble> createState() => _AudioBubbleState();
-}
-
-class _AudioBubbleState extends State<AudioBubble> {
-  final pl = AudioPlayer();
-  bool playing = false;
-  @override
-  void initState() {
-    super.initState();
-    pl.onPlayerComplete.listen((_) { if (mounted) setState(() => playing = false); });
-  }
-
-  @override
-  void dispose() { pl.dispose(); super.dispose(); }
-  @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-        IconButton(
-            icon: Icon(playing ? Icons.pause_circle : Icons.play_circle, size: 36),
-            onPressed: () async {
-              if (playing) { await pl.pause(); } else { await pl.play(UrlSource(widget.url)); }
-              setState(() => playing = !playing);
-            }),
-        const Icon(Icons.graphic_eq),
-        const SizedBox(width: 24),
-      ]);
 }
 
 class AboutPage extends StatelessWidget {
@@ -371,7 +344,7 @@ class _HomeState extends State<Home> {
   String q = '';
   late final Stream<List<Map<String, dynamic>>> ms = sb.from('messages').stream(primaryKey: ['id']).order('created_at', ascending: false);
   @override
-  void initState() { super.initState(); for (final x in cachedList('home_people')) { people[x['id']] = x; if (x['id'] != me) contactIds.add(x['id']); } beat(); timer = Timer.periodic(const Duration(seconds: 30), (_) => beat()); load(); }
+  void initState() { super.initState(); for (final x in cachedList(ck('home_people'))) { people[x['id']] = x; if (x['id'] != me) contactIds.add(x['id']); } beat(); timer = Timer.periodic(const Duration(seconds: 30), (_) => beat()); load(); }
   @override
   void dispose() { timer?.cancel(); super.dispose(); }
   Future<void> beat() async { if (!(prefs.getBool('seen') ?? true)) return; try { await sb.from('profiles').update({'last_seen': DateTime.now().toUtc().toIso8601String()}).eq('id', me); } catch (_) {} }
@@ -382,7 +355,7 @@ class _HomeState extends State<Home> {
     try {
       final r = await sb.from('profiles').select().inFilter('id', need);
       for (final p in r) { people[p['id']] = Map<String, dynamic>.from(p); }
-      prefs.setString('home_people', jsonEncode(people.values.toList()));
+      prefs.setString(ck('home_people'), jsonEncode(people.values.toList()));
       if (mounted) setState(() {});
     } catch (_) {}
   }
@@ -434,6 +407,7 @@ class _HomeState extends State<Home> {
 
   void menu(String v) {
     if (v == 'group') toast(context, t('soon'));
+    if (v == 'starred') Navigator.push(context, MaterialPageRoute(builder: (_) => const StarredPage()));
     if (v == 'settings') Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsPage()));
     if (v == 'help') Navigator.push(context, MaterialPageRoute(builder: (_) => const HelpPage()));
     if (v == 'about') Navigator.push(context, MaterialPageRoute(builder: (_) => const AboutPage()));
@@ -443,10 +417,10 @@ class _HomeState extends State<Home> {
   @override
   Widget build(BuildContext context) => StreamBuilder<List<Map<String, dynamic>>>(
         stream: ms,
-        initialData: cachedList('home_msgs'),
+        initialData: cachedList(ck('home_msgs')),
         builder: (c, s) {
           final all = s.data ?? <Map<String, dynamic>>[];
-          prefs.setString('home_msgs', jsonEncode(all.take(300).toList()));
+          prefs.setString(ck('home_msgs'), jsonEncode(all.take(300).toList()));
           final last = <String, Map<String, dynamic>>{};
           final unread = <String, int>{};
           for (final m in all) {
@@ -457,10 +431,15 @@ class _HomeState extends State<Home> {
           final total = unread.values.fold<int>(0, (a, b) => a + b);
           contactIds.addAll(last.keys);
           getPeople(contactIds);
+          final pins = (prefs.getStringList(ck('pins')) ?? <String>[]).toSet();
           final ids = contactIds.where((i) => people.containsKey(i) && i != me && (q.isEmpty ||
                   people[i]!['display_name'].toString().toLowerCase().contains(q.toLowerCase()) ||
                   people[i]!['username'].toString().contains(q.toLowerCase()))).toList()
-            ..sort((a, b) => (last[b]?['created_at'] ?? '').toString().compareTo((last[a]?['created_at'] ?? '').toString()));
+            ..sort((a, b) {
+              final pa = pins.contains(a) ? 1 : 0, pb = pins.contains(b) ? 1 : 0;
+              if (pa != pb) return pb - pa;
+              return (last[b]?['created_at'] ?? '').toString().compareTo((last[a]?['created_at'] ?? '').toString());
+            });
           final by = grouped();
           Widget body;
           if (tab == 0) {
@@ -469,13 +448,14 @@ class _HomeState extends State<Home> {
               for (final id in ids)
                 ListTile(
                   leading: avatar(people[id]!),
-                  title: Text(people[id]!['display_name']),
+                  title: Row(children: [Expanded(child: Text(people[id]!['display_name'])), if (pins.contains(id)) const Icon(Icons.push_pin, size: 14)]),
                   subtitle: Text(last[id] == null ? '@${people[id]!['username']}' : preview(last[id]!), maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontWeight: (unread[id] ?? 0) > 0 ? FontWeight.bold : FontWeight.normal)),
                   trailing: last[id] == null ? null : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                     Text(hm(last[id]!['created_at']), style: const TextStyle(fontSize: 11)),
                     if ((unread[id] ?? 0) > 0) Badge(label: Text('${unread[id]}')),
                   ]),
+                  onLongPress: () async { final l2 = pins.toList(); if (!l2.remove(id)) l2.add(id); await prefs.setStringList(ck('pins'), l2); setState(() {}); },
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatPage(peer: people[id]!))),
                 ),
             ]));
@@ -505,6 +485,7 @@ class _HomeState extends State<Home> {
                 if (tab == 0) IconButton(icon: const Icon(Icons.person_add), onPressed: () async { await Navigator.push(context, MaterialPageRoute(builder: (_) => const SearchPage())); load(); }),
                 PopupMenuButton<String>(onSelected: menu, itemBuilder: (_) => [
                   PopupMenuItem(value: 'group', child: Text(t('newGroup'))),
+                  PopupMenuItem(value: 'starred', child: Text(t('starredMsgs'))),
                   PopupMenuItem(value: 'settings', child: Text(t('settings'))),
                   PopupMenuItem(value: 'help', child: Text(t('help'))),
                   PopupMenuItem(value: 'about', child: Text(t('about'))),
@@ -582,7 +563,8 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     loadBlock();
-    pend = cachedList('pend_$pid');
+    loadStars();
+    pend = cachedList(ck('pend_$pid'));
     rt = Timer.periodic(const Duration(seconds: 8), (_) => flush());
     final ids = [me, pid]..sort();
     ch = sb.channel('typing_${ids.join('_')}')
@@ -606,10 +588,45 @@ class _ChatPageState extends State<ChatPage> {
     try { ch.sendBroadcastMessage(event: 'typing', payload: {'from': me}); } catch (_) {}
   }
 
+  Set<int> starred = {};
+  Future<void> loadStars() async {
+    try { final r = await sb.from('stars').select('message_id').eq('user_id', me); if (mounted) setState(() => starred = r.map<int>((e) => e['message_id'] as int).toSet()); } catch (_) {}
+  }
+  Future<void> toggleStar(Map m) async {
+    final id = m['id'] as int;
+    try {
+      if (starred.contains(id)) { await sb.from('stars').delete().eq('user_id', me).eq('message_id', id); starred.remove(id); }
+      else { await sb.from('stars').insert({'user_id': me, 'message_id': id}); starred.add(id); }
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+  Future<void> editMsg(Map m) async {
+    final ctl = TextEditingController(text: m['body']);
+    final ok = await showDialog<bool>(context: context, builder: (_) => AlertDialog(content: TextField(controller: ctl, maxLines: 4), actions: [
+      TextButton(onPressed: () => Navigator.pop(context, false), child: Text(t('cancel'))),
+      TextButton(onPressed: () => Navigator.pop(context, true), child: Text(t('save')))]));
+    if (ok == true && ctl.text.trim().isNotEmpty) {
+      try { await sb.from('messages').update({'body': ctl.text.trim(), 'edited': true}).eq('id', m['id']); } catch (_) { if (mounted) toast(context, t('error')); }
+    }
+  }
+  Future<void> forward(Map m) async {
+    try {
+      final c = await sb.from('contacts').select('contact').eq('owner', me);
+      final ids = c.map((e) => e['contact']).toList();
+      if (ids.isEmpty) return;
+      final ps = List<Map<String, dynamic>>.from(await sb.from('profiles').select().inFilter('id', ids));
+      if (!mounted) return;
+      final to = await showModalBottomSheet<Map<String, dynamic>>(context: context, builder: (_) => ListView(children: [
+        for (final p in ps) ListTile(leading: avatar(p), title: Text(p['display_name']), onTap: () => Navigator.pop(context, p))]));
+      if (to == null) return;
+      await sb.from('messages').insert({'sender': me, 'receiver': to['id'], 'type': m['type'], 'body': m['body']});
+      if (mounted) toast(context, t('forwarded'));
+    } catch (_) { if (mounted) toast(context, t('error')); }
+  }
   Future<void> loadBlock() async {
     try { final r = await sb.from('blocks').select().eq('blocker', me).eq('blocked', pid); if (mounted) setState(() => blocked = r.isNotEmpty); } catch (_) {}
   }
-  void savePend() => prefs.setString('pend_$pid', jsonEncode(pend));
+  void savePend() => prefs.setString(ck('pend_$pid'), jsonEncode(pend));
   Future<void> flush() async {
     for (final p in List<Map<String, dynamic>>.from(pend)) {
       try {
@@ -681,6 +698,9 @@ class _ChatPageState extends State<ChatPage> {
               GestureDetector(onTap: () { Navigator.pop(context); react(m, e, rx); }, child: Text(e, style: const TextStyle(fontSize: 30))),
           ])),
           ListTile(leading: const Icon(Icons.reply), title: Text(t('reply')), onTap: () { Navigator.pop(context); setState(() => replyTo = m); }),
+          if (m['deleted'] != true) ListTile(leading: const Icon(Icons.forward), title: Text(t('forward')), onTap: () { Navigator.pop(context); forward(m); }),
+          if (m['deleted'] != true) ListTile(leading: Icon(starred.contains(m['id']) ? Icons.star : Icons.star_border), title: Text(t(starred.contains(m['id']) ? 'unstar' : 'star')), onTap: () { Navigator.pop(context); toggleStar(m); }),
+          if (m['sender'] == me && m['type'] == 'text' && m['deleted'] != true) ListTile(leading: const Icon(Icons.edit), title: Text(t('edit')), onTap: () { Navigator.pop(context); editMsg(m); }),
           if (m['sender'] == me && m['deleted'] != true)
             ListTile(leading: const Icon(Icons.delete), title: Text(t('del')), onTap: () async {
               Navigator.pop(context);
@@ -709,14 +729,14 @@ class _ChatPageState extends State<ChatPage> {
             ]),
           ),
         ),
-        body: Column(children: [
+        body: CustomPaint(painter: ChatBg(Theme.of(context).brightness == Brightness.dark), child: Column(children: [
           Expanded(child: StreamBuilder<List<Map<String, dynamic>>>(
             stream: st,
-            initialData: cachedList('chat_$pid'),
+            initialData: cachedList(ck('chat_$pid')),
             builder: (_, s) {
               final l = (s.data ?? <Map<String, dynamic>>[]).where((m) => (m['sender'] == me && m['receiver'] == pid) || (m['sender'] == pid && m['receiver'] == me)).toList();
               markRead(l);
-              prefs.setString('chat_$pid', jsonEncode(l));
+              prefs.setString(ck('chat_$pid'), jsonEncode(l));
               return StreamBuilder<List<Map<String, dynamic>>>(stream: rs, builder: (_, r) {
                 final rx = r.data ?? <Map<String, dynamic>>[];
                 return ListView.builder(reverse: true, padding: const EdgeInsets.all(8), itemCount: l.length + pend.length, itemBuilder: (_, i) {
@@ -744,7 +764,7 @@ class _ChatPageState extends State<ChatPage> {
             IconButton(icon: Icon(recording ? Icons.stop_circle : Icons.mic, color: recording ? Colors.red : null), onPressed: toggleRec),
             IconButton(icon: const Icon(Icons.send), onPressed: sendText),
           ]))),
-        ]),
+        ])),
       );
 }
 
@@ -784,6 +804,7 @@ class Bubble extends StatelessWidget {
                 child: Text(preview(reply!), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12))),
           w,
           Row(mainAxisSize: MainAxisSize.min, children: [
+            if (m['edited'] == true) Text('${t('edited')} ', style: const TextStyle(fontSize: 10, fontStyle: FontStyle.italic)),
             Text(hm(m['created_at']), style: const TextStyle(fontSize: 10)),
             if (mine) Padding(padding: const EdgeInsetsDirectional.only(start: 4), child: Icon(m['pending'] == true ? Icons.access_time : (read ? Icons.done_all : Icons.done), size: 14, color: read ? Colors.blue : Colors.grey)),
           ]),
@@ -884,7 +905,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 onChanged: (v) async { await prefs.setBool('seen', v); setState(() {}); }),
             ListTile(leading: const Icon(Icons.block), title: Text(t('blockedList')), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BlockedPage()))),
             ListTile(leading: const Icon(Icons.cleaning_services), title: Text(t('clearCache')), onTap: () async {
-              for (final k in prefs.getKeys().where((k) => k.startsWith('chat_') || k.startsWith('home_')).toList()) { await prefs.remove(k); }
+              for (final k in prefs.getKeys().where((k) => k.contains('chat_') || k.contains('home_') || k.contains('pend_')).toList()) { await prefs.remove(k); }
               if (context.mounted) toast(context, t('cleared'));
             }),
             const Divider(),
@@ -963,6 +984,131 @@ class _EditProfilePageState extends State<EditProfilePage> {
           TextField(controller: b, maxLength: 120, decoration: InputDecoration(labelText: t('bio'), border: const OutlineInputBorder())),
           const SizedBox(height: 8),
           FilledButton(onPressed: save, child: Text(t('save'))),
+        ]),
+      );
+}
+
+String ck(String k) => '${sb.auth.currentUser?.id ?? 'x'}_$k';
+
+class AudioBubble extends StatefulWidget {
+  final String url;
+  const AudioBubble({super.key, required this.url});
+  @override
+  State<AudioBubble> createState() => _AudioBubbleState();
+}
+
+class _AudioBubbleState extends State<AudioBubble> {
+  final pl = AudioPlayer();
+  bool playing = false;
+  double speed = 1;
+  String get pk => 'ap_${widget.url.hashCode}';
+  @override
+  void initState() {
+    super.initState();
+    pl.onPlayerComplete.listen((_) { prefs.setInt(pk, 0); if (mounted) setState(() => playing = false); });
+  }
+  @override
+  void dispose() { pl.dispose(); super.dispose(); }
+  Future<void> toggle() async {
+    if (playing) {
+      final p = await pl.getCurrentPosition();
+      await prefs.setInt(pk, p?.inMilliseconds ?? 0);
+      await pl.pause();
+    } else {
+      await pl.setPlaybackRate(speed);
+      await pl.play(UrlSource(widget.url), position: Duration(milliseconds: prefs.getInt(pk) ?? 0));
+    }
+    setState(() => playing = !playing);
+  }
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+        IconButton(icon: Icon(playing ? Icons.pause_circle : Icons.play_circle, size: 36), onPressed: toggle),
+        const Icon(Icons.graphic_eq),
+        TextButton(
+            onPressed: () { setState(() => speed = speed == 1 ? 1.5 : (speed == 1.5 ? 2 : 1)); pl.setPlaybackRate(speed); },
+            child: Text('${speed == 1 ? '1' : speed}x')),
+      ]);
+}
+
+class ChatBg extends CustomPainter {
+  final bool dark;
+  ChatBg(this.dark);
+  @override
+  void paint(Canvas c, Size s) {
+    final p = Paint()..color = (dark ? Colors.white : Colors.teal).withOpacity(dark ? 0.05 : 0.08)..style = PaintingStyle.stroke..strokeWidth = 1.6;
+    const g = 56.0;
+    int i = 0;
+    for (double y = 20; y < s.height; y += g) {
+      for (double x = 20 + (i.isOdd ? g / 2 : 0); x < s.width; x += g) {
+        final k = ((x ~/ g) + i) % 4;
+        final o = Offset(x, y);
+        if (k == 0) { c.drawCircle(o, 7, p); }
+        else if (k == 1) { c.drawRect(Rect.fromCenter(center: o, width: 14, height: 11), p); }
+        else if (k == 2) { c.drawLine(o.translate(-7, 0), o.translate(7, 0), p); c.drawLine(o.translate(0, -7), o.translate(0, 7), p); }
+        else { c.drawPath(Path()..moveTo(o.dx - 7, o.dy + 6)..lineTo(o.dx, o.dy - 7)..lineTo(o.dx + 7, o.dy + 6)..close(), p); }
+      }
+      i++;
+    }
+  }
+  @override
+  bool shouldRepaint(ChatBg o) => o.dark != dark;
+}
+
+class UserPreviewPage extends StatelessWidget {
+  final Map<String, dynamic> user;
+  const UserPreviewPage({super.key, required this.user});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(t('profile'))),
+        body: ListView(padding: const EdgeInsets.all(24), children: [
+          Center(child: GestureDetector(
+              onTap: user['avatar_url'] == null ? null : () => Navigator.push(context, MaterialPageRoute(builder: (_) => Scaffold(appBar: AppBar(), body: Center(child: InteractiveViewer(child: Image.network(user['avatar_url'])))))),
+              child: avatar(user, r: 70))),
+          const SizedBox(height: 16),
+          Center(child: Text(user['display_name'], style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
+          Center(child: Text('@${user['username']}')),
+          const SizedBox(height: 16),
+          Card(child: ListTile(title: Text(t('bio'), style: const TextStyle(fontSize: 12, color: Colors.grey)), subtitle: Text((user['bio'] ?? '').toString().isEmpty ? '-' : user['bio']))),
+          const SizedBox(height: 16),
+          FilledButton.icon(icon: const Icon(Icons.chat), label: Text(t('addChat')), onPressed: () async {
+            try {
+              await sb.from('contacts').upsert({'owner': me, 'contact': user['id']});
+              if (context.mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ChatPage(peer: user)));
+            } catch (_) { if (context.mounted) toast(context, t('error')); }
+          }),
+        ]),
+      );
+}
+
+class StarredPage extends StatefulWidget {
+  const StarredPage({super.key});
+  @override
+  State<StarredPage> createState() => _StarredPageState();
+}
+
+class _StarredPageState extends State<StarredPage> {
+  List<Map<String, dynamic>>? l;
+  @override
+  void initState() { super.initState(); load(); }
+  Future<void> load() async {
+    try {
+      final s = await sb.from('stars').select('message_id').eq('user_id', me);
+      final ids = s.map((e) => e['message_id']).toList();
+      final r = ids.isEmpty ? [] : await sb.from('messages').select().inFilter('id', ids).order('created_at', ascending: false);
+      if (mounted) setState(() => l = List<Map<String, dynamic>>.from(r));
+    } catch (_) { if (mounted) setState(() => l = []); }
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: Text(t('starredMsgs'))),
+        body: l == null ? const Center(child: CircularProgressIndicator()) : l!.isEmpty ? Center(child: Text(t('noStarred'))) : ListView(children: [
+          for (final m in l!)
+            ListTile(
+              leading: Icon(m['sender'] == me ? Icons.north_east : Icons.south_west),
+              title: Text(preview(m), maxLines: 2, overflow: TextOverflow.ellipsis),
+              subtitle: Text(hm(m['created_at'])),
+              trailing: IconButton(icon: const Icon(Icons.star), onPressed: () async { await sb.from('stars').delete().eq('user_id', me).eq('message_id', m['id']); load(); }),
+            )
         ]),
       );
 }
